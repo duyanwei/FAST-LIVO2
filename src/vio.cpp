@@ -1,4 +1,4 @@
-/* 
+/*
 This file is part of FAST-LIVO2: Fast, Direct LiDAR-Inertial-Visual Odometry.
 
 Developer: Chunran Zheng <zhengcr@connect.hku.hk>
@@ -127,7 +127,8 @@ void VIOManager::initializeVIO()
 
   if(colmap_output_en)
   {
-    pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam);
+    // pinhole_cam = dynamic_cast<vk::PinholeCamera*>(cam);
+    pinhole_cam = dynamic_cast<vk::EquidistantCamera*>(cam);
     fout_colmap.open(DEBUG_FILE_DIR("Colmap/sparse/0/images.txt"), ios::out);
     fout_colmap << "# Image list with two lines of data per image:\n";
     fout_colmap << "#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n";
@@ -135,7 +136,8 @@ void VIOManager::initializeVIO()
     fout_camera.open(DEBUG_FILE_DIR("Colmap/sparse/0/cameras.txt"), ios::out);
     fout_camera << "# Camera list with one line of data per camera:\n";
     fout_camera << "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n";
-    fout_camera << "1 PINHOLE " << width << " " << height << " "
+    // fout_camera << "1 PINHOLE " << width << " " << height << " "
+    fout_camera << "1 EQUIDISTANT " << width << " " << height << " "
         << std::fixed << std::setprecision(6)  // 控制浮点数精度为10位
         << fx << " " << fy << " "
         << cx << " " << cy << std::endl;
@@ -545,7 +547,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 
             if (new_frame_->cam_->isInFrame(pc.cast<int>(), border))
             {
-              // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8); 
+              // cv::circle(img_cp, cv::Point2f(pc[0], pc[1]), 3, cv::Scalar(255, 255, 0), -1, 8);
               // sub_map_ray_fov.push_back(pt);
 
               voxel_in_fov = true;
@@ -699,10 +701,10 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
       if (normal_en)
       {
         V3D norm_vec = (ref_ftr->T_f_w_.rotation_matrix() * pt->normal_).normalized();
-        
+
         V3D pf(ref_ftr->T_f_w_ * pt->pos_);
         // V3D pf_norm = pf.normalized();
-        
+
         // double cos_theta = norm_vec.dot(pf_norm);
         // if(cos_theta < 0) norm_vec = -norm_vec;
         // if (abs(cos_theta) < 0.08) continue; // 0.5 60 degree 0.34 70 degree 0.17 80 degree 0.08 85 degree
@@ -784,7 +786,7 @@ void VIOManager::retrieveFromVisualSparseMap(cv::Mat img, vector<pointWithVar> &
 void VIOManager::computeJacobianAndUpdateEKF(cv::Mat img)
 {
   if (total_points == 0) return;
-  
+
   compute_jacobian_time = update_ekf_time = 0.0;
 
   for (int level = patch_pyrimid_level - 1; level >= 0; level--)
@@ -888,7 +890,7 @@ void VIOManager::generateVisualMapPoints(cv::Mat img, vector<pointWithVar> &pg)
 
       if (cos_theta < 0) { pt_new->normal_ = -pt_var.normal; }
       else { pt_new->normal_ = pt_var.normal; }
-      
+
       pt_new->previous_normal_ = pt_new->normal_;
 
       insertPointIntoVoxelMap(pt_new);
@@ -916,14 +918,14 @@ void VIOManager::updateVisualMapPoints(cv::Mat img)
     VisualPoint *pt = visual_submap->voxel_points[i];
     if (pt == nullptr) continue;
     if (pt->is_converged_)
-    { 
+    {
       pt->deleteNonRefPatchFeatures();
       continue;
     }
 
     V2D pc(new_frame_->w2c(pt->pos_));
     bool add_flag = false;
-    
+
     float *patch_temp = new float[patch_size_total];
     getImagePatch(img, pc, patch_temp, 0);
     // TODO: condition: distance and view_angle
@@ -1015,7 +1017,7 @@ void VIOManager::updateReferencePatch(const unordered_map<VOXEL_LOCATION, VoxelO
             // V3D pf_ref(pt->ref_patch->T_f_w_ * pt->pos_);
             // V3D norm_vec_ref(pt->ref_patch->T_f_w_.rotation_matrix() *
             // plane.normal); double cos_ref = pf_ref.dot(norm_vec_ref);
-            
+
             if (pt->previous_normal_.dot(plane.normal_) < 0) { pt->normal_ = -plane.normal_; }
             else { pt->normal_ = plane.normal_; }
 
@@ -1513,7 +1515,7 @@ void VIOManager::updateStateInverse(cv::Mat img, int level)
 
     update_ekf_time += omp_get_wtime() - t3;
 
-    if (iteration == max_iterations || EKF_end) break; 
+    if (iteration == max_iterations || EKF_end) break;
   }
 }
 
@@ -1542,13 +1544,13 @@ void VIOManager::updateState(cv::Mat img, int level)
     Rcw = Rci * Rwi.transpose();
     Pcw = -Rci * Rwi.transpose() * Pwi + Pci;
     Jdp_dt = Rci * Rwi.transpose();
-    
+
     float error = 0.0;
     int n_meas = 0;
     // int max_threads = omp_get_max_threads();
     // int desired_threads = std::min(max_threads, total_points);
     // omp_set_num_threads(desired_threads);
-  
+
     #ifdef MP_EN
       omp_set_num_threads(MP_PROC_NUM);
       #pragma omp parallel for reduction(+:error, n_meas)
@@ -1624,7 +1626,7 @@ void VIOManager::updateState(cv::Mat img, int level)
 
           patch_error += res * res;
           n_meas += 1;
-          
+
           if (exposure_estimate_en) { H_sub.block<1, 7>(i * patch_size_total + x * patch_size + y, 0) << JdR, Jdt, cur_value; }
           else { H_sub.block<1, 6>(i * patch_size_total + x * patch_size + y, 0) << JdR, Jdt; }
         }
@@ -1634,7 +1636,7 @@ void VIOManager::updateState(cv::Mat img, int level)
     }
 
     error = error / n_meas;
-    
+
     compute_jacobian_time += omp_get_wtime() - t1;
 
     // printf("\nPYRAMID LEVEL %i\n---------------\n", level);
@@ -1766,11 +1768,11 @@ void VIOManager::dumpDataForColmap()
   ss << std::setw(5) << std::setfill('0') << cnt;
   std::string cnt_str = ss.str();
   std::string image_path = std::string(ROOT_DIR) + "Log/Colmap/images/" + cnt_str + ".png";
-  
-  cv::Mat img_rgb_undistort;
-  pinhole_cam->undistortImage(img_rgb, img_rgb_undistort);
+
+  cv::Mat img_rgb_undistort(img_rgb);
+//  pinhole_cam->undistortImage(img_rgb, img_rgb_undistort);
   cv::imwrite(image_path, img_rgb_undistort);
-  
+
   Eigen::Quaterniond q(new_frame_->T_f_w_.rotation_matrix());
   Eigen::Vector3d t = new_frame_->T_f_w_.translation();
   fout_colmap << cnt << " "
@@ -1798,7 +1800,7 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
 
   new_frame_.reset(new Frame(cam, img));
   updateFrameState(*state);
-  
+
   resetGrid();
 
   double t1 = omp_get_wtime();
@@ -1814,7 +1816,7 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
   generateVisualMapPoints(img, pg);
 
   double t4 = omp_get_wtime();
-  
+
   plotTrackedPoints();
 
   if (plot_flag) projectPatchFromRefToCur(feat_map);
@@ -1828,7 +1830,7 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
   updateReferencePatch(feat_map);
 
   double t7 = omp_get_wtime();
-  
+
   if(colmap_output_en)  dumpDataForColmap();
 
   frame_count++;
@@ -1844,10 +1846,10 @@ void VIOManager::processFrame(cv::Mat &img, vector<pointWithVar> &pg, const unor
 
   // ave_build_residual_time = ave_build_residual_time * (frame_count - 1) / frame_count + (t2 - t1) / frame_count;
   // ave_ekf_time = ave_ekf_time * (frame_count - 1) / frame_count + (t3 - t2) / frame_count;
- 
+
   // cout << BLUE << "ave_build_residual_time: " << ave_build_residual_time << RESET << endl;
   // cout << BLUE << "ave_ekf_time: " << ave_ekf_time << RESET << endl;
-  
+
   printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
   printf("\033[1;34m|                         VIO Time                            |\033[0m\n");
   printf("\033[1;34m+-------------------------------------------------------------+\033[0m\n");
